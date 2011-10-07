@@ -18,6 +18,7 @@
 //I'm not attaching a formal license to this code. But I did put many hours of hard work into it,
 //so if you make use of it, a shout out or some other sort of acknowledgement would be lovely.
 
+
 #include <Wire.h>
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
@@ -185,7 +186,7 @@ unsigned char dmpMem[8][16][16] PROGMEM = {
 };
 
 //DMP update transmissions (Bank, Start Address, Update Length, Update Data...)
-//Comment for each transmission includes the address key and responsible function in the original Invensense demo code
+
 static byte dmp_updates[29][9] =
 {
   {
@@ -281,7 +282,6 @@ void setup(){
 
   Serial.begin(115200);
   
-  //wait until we receive an ASCII "t" character before we run the initialization and start the loop
   while(!Serial.available()){
     if(Serial.available()){
       byte hereWeGo = Serial.read();
@@ -293,6 +293,7 @@ void setup(){
   
   Wire.begin();
   delay(1);
+//  check_MPU();
   
   Serial.println("MPU-6050 6-Axis");
 
@@ -305,18 +306,374 @@ void setup(){
   regWrite(0x6D, 0x70);
   regWrite(0x6E, 0x06);
   temp = regRead(0x6F);
+  Serial.print("Bank 1, Reg 6 = ");
+  Serial.println(temp, HEX);
+
+//  temp = regRead(0x6B);
+//  Serial.println(temp, HEX);
+  
   regWrite(0x6D, 0x00);
+  
   temp = regRead(0x00);
+  Serial.println(temp, HEX);
   temp = regRead(0x01);
+  Serial.println(temp, HEX);
   temp = regRead(0x02);
+  Serial.println(temp, HEX);
   temp = regRead(0x6A);
+  Serial.println(temp, HEX);
   
   regWrite(0x37, 0x32);
   
   temp = regRead(0x6B);
+  Serial.println(temp, HEX);
   delay(5);
+//  regWrite(0x25, 0x68); //Set Slave 0 to self
+//
+//  regWrite(0x6A, 0x02);
+
   mem_init();
 delay(20);
+}
+  
+void dmp_init(){
+  
+  for(int i = 0; i < 7; i++){
+    bank_sel(i); 
+    for(byte j = 0; j < 16; j++){
+      
+      byte start_addy = j * 0x10;
+      
+      Wire.beginTransmission(MPU_ADDR);
+      Wire.send(MEM_START_ADDR);
+      Wire.send(start_addy);
+      Wire.endTransmission();
+  
+      Wire.beginTransmission(MPU_ADDR);
+      Wire.send(MEM_R_W);
+      for(int k = 0; k < 16; k++){
+        unsigned char byteToSend = pgm_read_byte(&(dmpMem[i][j][k]));
+        Wire.send((byte) byteToSend);
+      }
+      Wire.endTransmission();
+    }
+    
+//    Wire.beginTransmission(MPU_ADDR);
+//    Wire.send(MEM_R_W);
+//    Wire.endTransmission();
+//    Wire.requestFrom(MPU_ADDR, 16);
+//    byte echoback[16];
+//    for(int j = 0; j < 16; j++){
+//      echoback[j] = Wire.receive();
+//    }
+//    for(int j = 0; j < 16; j++){
+//      Serial.print(echoback[j], HEX);
+//    }
+    
+  }
+  
+  bank_sel(7);
+
+  for(byte j = 0; j < 8; j++){
+    
+    byte start_addy = j * 0x10;
+    
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_START_ADDR);
+    Wire.send(start_addy);
+    Wire.endTransmission();
+
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_R_W);
+    for(int k = 0; k < 16; k++){
+      unsigned char byteToSend = pgm_read_byte(&(dmpMem[7][j][k]));
+      Wire.send((byte) byteToSend);
+    }
+    Wire.endTransmission();
+  }
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(MEM_START_ADDR);
+  Wire.send(0x80);
+  Wire.endTransmission();
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(MEM_R_W);
+  for(int k = 0; k < 9; k++){
+      unsigned char byteToSend = pgm_read_byte(&(dmpMem[7][8][k]));
+      Wire.send((byte) byteToSend);
+  }
+  Wire.endTransmission();
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(MEM_R_W);
+  Wire.endTransmission();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.requestFrom(MPU_ADDR,9);
+//  Wire.endTransmission();
+  byte incoming[9];
+  for(int i = 0; i < 9; i++){
+    incoming[i] = Wire.receive();
+  }
+  
+//  bank_sel(3);
+//  Wire.beginTransmission(MPU_ADDR);
+//  Wire.send(MEM_START_ADDR);
+//  Wire.send(0x10);
+//  Wire.endTransmission();
+//  Wire.beginTransmission(MPU_ADDR);
+//  Wire.send(MEM_R_W);
+//  Wire.endTransmission();
+//  Wire.beginTransmission(MPU_ADDR);
+//  Wire.requestFrom(MPU_ADDR,16);
+//  Wire.endTransmission();
+//  byte incoming[16];
+//  for(int i = 0; i < 16; i++){
+//    incoming[i] = Wire.receive();
+//  }
+
+}
+  
+void mem_init(){
+  
+  dmp_init();
+  
+  for(byte i = 0; i < 22; i++){
+    bank_sel(dmp_updates[i][0]);
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_START_ADDR);
+    Wire.send(dmp_updates[i][1]);
+    Wire.endTransmission();
+
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_R_W);
+    for(byte j = 0; j < dmp_updates[i][2]; j++){
+      Wire.send(dmp_updates[i][j+3]);
+    }
+    Wire.endTransmission();
+  }
+
+  regWrite(0x38, 0x32);
+
+  for(byte i = 22; i < 29; i++){
+    bank_sel(dmp_updates[i][0]);
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_START_ADDR);
+    Wire.send(dmp_updates[i][1]);
+    Wire.endTransmission();
+
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(MEM_R_W);
+    for(byte j = 0; j < dmp_updates[i][2]; j++){
+      Wire.send(dmp_updates[i][j+3]);
+    }
+    Wire.endTransmission();
+  }
+  
+  temp = regRead(0x6B);
+  Serial.println(temp, HEX);
+  temp = regRead(0x6C);
+  Serial.println(temp, HEX);
+  
+  regWrite(0x38, 0x02);
+  regWrite(0x6B, 0x03);
+//  regWrite(0x6B, 0x70);
+//  regWrite(0x38, 0x38);
+//  regWrite(0x6B, 0x73);
+  regWrite(0x19, 0x04);
+  regWrite(0x1B, 0x18);
+  regWrite(0x1A, 0x0B);
+  regWrite(0x70, 0x03);
+  regWrite(0x71, 0x00);
+  regWrite(0x00, 0x00);
+  regWrite(0x01, 0x00);
+  regWrite(0x02, 0x00);
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x13);
+  for(byte i = 0; i < 6; i++){
+    Wire.send(0x00);
+  }
+  Wire.endTransmission();
+  
+//  regWrite(0x24, 0x00);
+
+  bank_sel(0x01);
+  regWrite(0x6E, 0xB2);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x6F);
+  Wire.send(0xFF); Wire.send(0xFF);
+  Wire.endTransmission();
+
+  bank_sel(0x01);
+  regWrite(0x6E, 0x90);
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x6F);
+  Wire.send(0x09); Wire.send(0x23); Wire.send(0xA1); Wire.send(0x35);
+  Wire.endTransmission();
+  
+  temp = regRead(0x6A);
+  
+  regWrite(0x6A, 0x04);
+  
+  //Insert FIFO count read?
+  fifoReady();
+  
+  regWrite(0x6A, 0x00);
+  regWrite(0x6B, 0x03);
+  
+  delay(2);
+  
+  temp = regRead(0x6C);
+//  Serial.println(temp, HEX);
+  regWrite(0x6C, 0x00);
+  temp = regRead(0x1C);
+//  Serial.println(temp, HEX);
+  regWrite(0x1C, 0x00);
+  delay(2);
+  temp = regRead(0x6B);
+//  Serial.println(temp, HEX);
+  regWrite(0x1F, 0x02);
+  regWrite(0x21, 0x9C);
+  regWrite(0x20, 0x50);
+  regWrite(0x22, 0x00);
+  regWrite(0x6A, 0x04);
+  regWrite(0x6A, 0x00);
+  regWrite(0x6A, 0xC8);
+  
+  bank_sel(0x01);
+  regWrite(0x6E, 0x6A);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x6F);
+  Wire.send(0x06); Wire.send(0x00);
+  Wire.endTransmission();
+  
+  bank_sel(0x01);
+  regWrite(0x6E, 0x60);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x6F);
+  for(byte i = 0; i < 8; i++){
+    Wire.send(0x00);
+  }
+  Wire.endTransmission();
+  
+//  bank_sel(0x01);
+//  regWrite(0x6E, 0x60);
+//  Wire.beginTransmission(MPU_ADDR);
+//  Wire.send(0x6F);
+//  Wire.send(0x04); Wire.send(0x00); Wire.send(0x00); Wire.send(0x00);
+//  Wire.endTransmission();
+  
+  bank_sel(0x00);
+  regWrite(0x6E, 0x60);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x6F);
+  Wire.send(0x40); Wire.send(0x00); Wire.send(0x00); Wire.send(0x00);
+  Wire.endTransmission();
+  
+  //resetFifo();
+  
+}
+
+void regWrite(byte addy, byte regUpdate){
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(addy);
+  Wire.send(regUpdate);
+  Wire.endTransmission();
+}
+
+byte regRead(byte addy){
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(addy);
+  Wire.endTransmission();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.requestFrom(MPU_ADDR,1);
+//  Wire.endTransmission();
+  while(!Wire.available()){ 
+  }
+  byte incoming = Wire.receive();
+  return incoming;
+}
+
+void getPacket(){
+  if(fifoCountL > 32){
+    fifoCountL2 = fifoCountL - 32;
+    longPacket = true;
+  }
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x74);
+  Wire.endTransmission();
+//  Wire.requestFrom(MPU_ADDR, 42);
+//  for(byte i = 0; i < fifoCountL; i++){
+  if(longPacket){
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.requestFrom(MPU_ADDR, 32);
+    for(byte i = 0; i < 32; i++){
+      received_packet[i] = Wire.receive();
+    }
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.send(0x74);
+    Wire.endTransmission();
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.requestFrom(MPU_ADDR, (unsigned int)fifoCountL2);
+    for(byte i = 32; i < fifoCountL; i++){
+      received_packet[i] = Wire.receive();
+    }
+    longPacket = false;
+  }
+  else{
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.requestFrom(MPU_ADDR, (unsigned int)fifoCountL);
+    for(byte i = 0; i < fifoCountL; i++){
+      received_packet[i] = Wire.receive();
+    }
+  }
+}
+
+byte read_interrupt(){
+  byte int_status = regRead(0x3A);
+  return int_status;
+}
+
+boolean fifoReady(){
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.send(0x72);
+  Wire.endTransmission();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.requestFrom(MPU_ADDR,2);
+//  Wire.endTransmission();
+  byte fifoCountH = Wire.receive();
+  fifoCountL = Wire.receive();
+//  Serial.println(fifoCountL, DEC);
+  if(fifoCountL == 42 || fifoCountL == 44){
+    return 1;
+  }
+//  else if(fifoCountL != 0){
+//    resetFifo();
+//  }
+  
+  
+//  else if(fifoCountL == 42){
+//    getPacket();
+//    bank_sel(0);
+//    regWrite(0x6E, 0x60);
+//    Wire.beginTransmission(MPU_ADDR);
+//    Wire.send(0x40); Wire.send(0x00); Wire.send (0x00); Wire.send(0x00);
+//    Wire.endTransmission();
+//    resetFifo();
+//  }
+  
+//  if(Wire.receive() == 0x2C){
+//    return 1;
+//  }
+  else return 0;
+}
+
+void resetFifo(){
+  byte ctrl = regRead(0x6A);
+  ctrl |= 0b00000100;
+  regWrite(0x6A, ctrl);
 }
 
 void loop(){
@@ -387,270 +744,6 @@ void loop(){
 
 }
 
-void dmp_init(){
-  
-  for(int i = 0; i < 7; i++){
-    bank_sel(i); 
-    for(byte j = 0; j < 16; j++){
-      
-      byte start_addy = j * 0x10;
-      
-      Wire.beginTransmission(MPU_ADDR);
-      Wire.send(MEM_START_ADDR);
-      Wire.send(start_addy);
-      Wire.endTransmission();
-  
-      Wire.beginTransmission(MPU_ADDR);
-      Wire.send(MEM_R_W);
-      for(int k = 0; k < 16; k++){
-        unsigned char byteToSend = pgm_read_byte(&(dmpMem[i][j][k]));
-        Wire.send((byte) byteToSend);
-      }
-      Wire.endTransmission();
-    }
-    
-  }
-  
-  bank_sel(7);
-
-  for(byte j = 0; j < 8; j++){
-    
-    byte start_addy = j * 0x10;
-    
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_START_ADDR);
-    Wire.send(start_addy);
-    Wire.endTransmission();
-
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_R_W);
-    for(int k = 0; k < 16; k++){
-      unsigned char byteToSend = pgm_read_byte(&(dmpMem[7][j][k]));
-      Wire.send((byte) byteToSend);
-    }
-    Wire.endTransmission();
-  }
-  
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(MEM_START_ADDR);
-  Wire.send(0x80);
-  Wire.endTransmission();
-  
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(MEM_R_W);
-  for(int k = 0; k < 9; k++){
-      unsigned char byteToSend = pgm_read_byte(&(dmpMem[7][8][k]));
-      Wire.send((byte) byteToSend);
-  }
-  Wire.endTransmission();
-
-}
-  
-void mem_init(){
-  
-  dmp_init();
-  
-  for(byte i = 0; i < 22; i++){
-    bank_sel(dmp_updates[i][0]);
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_START_ADDR);
-    Wire.send(dmp_updates[i][1]);
-    Wire.endTransmission();
-
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_R_W);
-    for(byte j = 0; j < dmp_updates[i][2]; j++){
-      Wire.send(dmp_updates[i][j+3]);
-    }
-    Wire.endTransmission();
-  }
-
-  regWrite(0x38, 0x32);
-
-  for(byte i = 22; i < 29; i++){
-    bank_sel(dmp_updates[i][0]);
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_START_ADDR);
-    Wire.send(dmp_updates[i][1]);
-    Wire.endTransmission();
-
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(MEM_R_W);
-    for(byte j = 0; j < dmp_updates[i][2]; j++){
-      Wire.send(dmp_updates[i][j+3]);
-    }
-    Wire.endTransmission();
-  }
-  
-  temp = regRead(0x6B);
-  Serial.println(temp, HEX);
-  temp = regRead(0x6C);
-  Serial.println(temp, HEX);
-  
-  regWrite(0x38, 0x02);
-  regWrite(0x6B, 0x03);
-  regWrite(0x19, 0x04);
-  regWrite(0x1B, 0x18);
-  regWrite(0x1A, 0x0B);
-  regWrite(0x70, 0x03);
-  regWrite(0x71, 0x00);
-  regWrite(0x00, 0x00);
-  regWrite(0x01, 0x00);
-  regWrite(0x02, 0x00);
-  
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x13);
-  for(byte i = 0; i < 6; i++){
-    Wire.send(0x00);
-  }
-  Wire.endTransmission();
-
-  bank_sel(0x01);
-  regWrite(0x6E, 0xB2);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x6F);
-  Wire.send(0xFF); Wire.send(0xFF);
-  Wire.endTransmission();
-
-  bank_sel(0x01);
-  regWrite(0x6E, 0x90);
-  
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x6F);
-  Wire.send(0x09); Wire.send(0x23); Wire.send(0xA1); Wire.send(0x35);
-  Wire.endTransmission();
-  
-  temp = regRead(0x6A);
-  
-  regWrite(0x6A, 0x04);
-  
-  fifoReady();
-  
-  regWrite(0x6A, 0x00);
-  regWrite(0x6B, 0x03);
-  
-  delay(2);
-  
-  temp = regRead(0x6C);
-  regWrite(0x6C, 0x00);
-  temp = regRead(0x1C);
-  regWrite(0x1C, 0x00);
-  delay(2);
-  temp = regRead(0x6B);
-  regWrite(0x1F, 0x02);
-  regWrite(0x21, 0x9C);
-  regWrite(0x20, 0x50);
-  regWrite(0x22, 0x00);
-  regWrite(0x6A, 0x04);
-  regWrite(0x6A, 0x00);
-  regWrite(0x6A, 0xC8);
-  
-  bank_sel(0x01);
-  regWrite(0x6E, 0x6A);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x6F);
-  Wire.send(0x06); Wire.send(0x00);
-  Wire.endTransmission();
-  
-  bank_sel(0x01);
-  regWrite(0x6E, 0x60);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x6F);
-  for(byte i = 0; i < 8; i++){
-    Wire.send(0x00);
-  }
-  Wire.endTransmission();
-  
-  bank_sel(0x00);
-  regWrite(0x6E, 0x60);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x6F);
-  Wire.send(0x40); Wire.send(0x00); Wire.send(0x00); Wire.send(0x00);
-  Wire.endTransmission();
-  
-}
-
-void regWrite(byte addy, byte regUpdate){
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(addy);
-  Wire.send(regUpdate);
-  Wire.endTransmission();
-}
-
-byte regRead(byte addy){
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(addy);
-  Wire.endTransmission();
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.requestFrom(MPU_ADDR,1);
-  while(!Wire.available()){ 
-  }
-  byte incoming = Wire.receive();
-  return incoming;
-}
-
-void getPacket(){
-  if(fifoCountL > 32){
-    fifoCountL2 = fifoCountL - 32;
-    longPacket = true;
-  }
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x74);
-  Wire.endTransmission();
-  if(longPacket){
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.requestFrom(MPU_ADDR, 32);
-    for(byte i = 0; i < 32; i++){
-      received_packet[i] = Wire.receive();
-    }
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.send(0x74);
-    Wire.endTransmission();
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.requestFrom(MPU_ADDR, (unsigned int)fifoCountL2);
-    for(byte i = 32; i < fifoCountL; i++){
-      received_packet[i] = Wire.receive();
-    }
-    longPacket = false;
-  }
-  else{
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.requestFrom(MPU_ADDR, (unsigned int)fifoCountL);
-    for(byte i = 0; i < fifoCountL; i++){
-      received_packet[i] = Wire.receive();
-    }
-  }
-}
-
-byte read_interrupt(){
-  byte int_status = regRead(0x3A);
-  return int_status;
-}
-
-boolean fifoReady(){
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.send(0x72);
-  Wire.endTransmission();
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.requestFrom(MPU_ADDR,2);
-  byte fifoCountH = Wire.receive();
-  fifoCountL = Wire.receive();
-  if(fifoCountL == 42 || fifoCountL == 44){
-    return 1;
-  }
-//  else if(fifoCountL != 0){
-//    resetFifo();
-//    return 0;
-//  }
-  else return 0;
-}
-
-void resetFifo(){
-  byte ctrl = regRead(0x6A);
-  ctrl |= 0b00000100;
-  regWrite(0x6A, ctrl);
-}
-
 void check_MPU(){
     
   Wire.beginTransmission(MPU_ADDR);
@@ -683,6 +776,7 @@ void processQuat(){
     processed_packet[5] = received_packet[9];
     processed_packet[6] = received_packet[12];
     processed_packet[7] = received_packet[13];
+    
 }
   
 void sendQuat(){
